@@ -60,3 +60,8 @@ srun singularity exec /logiciels/containerCollections/CUDA10/tf2-NGC-19-11-py3.s
 
 
 # If you use another corpus, you need to see the data processors understand how it works, I gave you all the converters and markers for all datasets I used : for robust04 it is similar to cord19 but for trec the files needed for convert_*.py are different read the parameters. I can't explain all of them but if you read the convert dataset methods in each processor u can understand the format of each file.  
+
+# Train 
+1. use ```convert_msmarco_pass_train.py``` to create the training pairs.
+2. use ```create_train_data_msmarco_pass.py``` to create the tf datasets using a strategy, check the parameters needed.
+3. change the args in the colab ipynb to do training. 
