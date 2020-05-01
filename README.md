@@ -63,5 +63,41 @@ srun singularity exec /logiciels/containerCollections/CUDA10/tf2-NGC-19-11-py3.s
 
 # Train 
 1. use ```convert_msmarco_pass_train.py``` to create the training pairs.
+	```
+	#!/bin/sh
+	#SBATCH --job-name=convert_triples_train
+	#SBATCH --cpus-per-task=10
+	#SBATCH --partition=24CPUNodes
+	#SBATCH --output=./outputs/convert_triples_msmarco_train.out    # Standard output and error log
+
+	DATA_DIR=/path/to/msmarco/triples.train.small.tsv # just the path to the directory no / at the end
+	OUT_DIR=/path/out
+
+
+	srun singularity exec /logiciels/containerCollections/CUDA10/tf2-NGC-19-11-py3.sif  $HOME/tf2Env/bin/python3.6 "$HOME/workspace/Marked_BERT/convert_msmarco_pass_train.py" \
+		--output_folder $OUT_DIR \
+		--triples_train_path $DATA_DIR/triples.train.small.tsv \
+		--set_name msmarco_pass_train
+	```
 2. use ```create_train_data_msmarco_pass.py``` to create the tf datasets using a strategy, check the parameters needed.
-3. change the args in the colab ipynb to do training. 
+ 	```
+	#!/bin/sh
+	#SBATCH --job-name=base
+	#SBATCH --output=./outputs/msmarco_pass_train_base
+	#SBATCH --ntasks=1
+	#SBATCH --cpus-per-task=10
+	#SBATCH --partition=24CPUNodes
+
+	OUT_DIR=/out/dir/straregy
+	DATA_DIR=/path/to/train_pairs.tsv result of step 1
+
+
+	srun singularity exec /logiciels/containerCollections/CUDA10/tf2-NGC-19-11-py3.sif  $HOME/tf2Env/bin/python3.6 "$HOME/workspace/Marked_BERT/create_train_data_msmarco_pass.py" \
+		--output_dir $OUT_DIR \
+		--data_path $DATA_DIR \
+		--strategy base \ # change this for all strategies of marking
+		--tokenizer_model bert \
+		--tokenizer bert-base-uncased \ 
+		--set_name msmarco_train_pass_large 
+	```
+3. Run the colab, I made soem changes left comments in the colab (modifier cells are marked #modified first line), I created two cells of params for training and another one for evaluation. I modified the main, I put the right training params for msmarco set. I hope there won't be bugs.
