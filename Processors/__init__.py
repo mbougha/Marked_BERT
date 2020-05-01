@@ -19,3 +19,4 @@ from .msmarco_documents import  MsMarcoDocumentProcessor
 from .msmarco_passages import  MsMarcoPassageProcessor
 from .robust04 import Robust04Processor
 from .cord19 import Cord19Processor
+from .mb import MbProcessor

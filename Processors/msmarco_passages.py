@@ -154,7 +154,7 @@ def _load_collection(path):
 
 def convert_train_dataset(train_dataset_path,
                         output_folder,
-                        tokenizer,
+                        set_name,
                             ):
 
     print('Converting to Train to pairs tsv...')
@@ -165,7 +165,7 @@ def convert_train_dataset(train_dataset_path,
     num_lines = sum(1 for line in open(train_dataset_path, 'r'))
     print('{} examples found.'.format(num_lines))
     
-    with open(f'{output_folder}/train_pairs.tsv', 'w') as writer:
+    with open(f'{output_folder}/{set_name}_pairs.tsv', 'w') as out:
         with open(train_dataset_path, 'r') as f:
             for i, line in enumerate(f):
                 if i % 1000 == 0:
@@ -184,8 +184,8 @@ def convert_train_dataset(train_dataset_path,
                 negative_doc = strip_html_xml_tags(negative_doc)
                 negative_doc = clean_text(negative_doc)
 
-                out.write('\t'.join([clean_query, positive_doc, 1])+'\n')
-                out.write('\t'.join([clean_query, negative_doc, 0])+'\n')     
+                out.write('\t'.join([clean_query, positive_doc, '1'])+'\n')
+                out.write('\t'.join([clean_query, negative_doc, '0'])+'\n')     
 
     print("writer closed, DONE !")
     print(f'writer closed with {i*2} lines')
@@ -209,9 +209,10 @@ class MsMarcoPassageProcessor(DataProcessor):
     def prepare_train_dataset( self,
                              data_path, 
                              output_dir,
+                             set_name,
                              ):
-        tf_writer = tf.io.TFRecordWriter(f"{output_dir}/dataset_train.tf")
-        tsv_writer = open(f"{output_dir}/pairs_train.tsv", 'w')
+        tf_writer = tf.io.TFRecordWriter(f"{output_dir}/dataset_{set_name}_train.tf")
+        tsv_writer = open(f"{output_dir}/pairs_{set_name}_train.tsv", 'w')
 
         start_time = time.time()
 
@@ -237,19 +238,54 @@ class MsMarcoPassageProcessor(DataProcessor):
         tf_writer.close()
         tsv_writer.close()
 
+    # def prepare_inference_dataset( self,
+    #                          data_path, 
+    #                          output_dir,
+    #                          set_name, ):
+    #     tf_writer = tf.io.TFRecordWriter(f"{output_dir}/dataset_{set_name}.tf")
+    #     tsv_writer = open(f"{output_dir}/pairs_{set_name}.tsv", 'w')
+
+    #     start_time = time.time()
+
+    #     print('Counting number of examples...')
+    #     num_lines = sum(1 for line in open(data_path, 'r'))
+    #     print('{} examples found.'.format(num_lines))
+
+    #     with open(data_path, 'r') as f:
+    #         for i, line in enumerate(f):
+    #             if i % 1000 == 0:
+    #                 time_passed = int(time.time() - start_time)
+    #                 print('Processed training set, line {} of {} in {} sec'.format(
+    #                     i, num_lines, time_passed))
+    #                 hours_remaining = (num_lines - i) * time_passed / (max(1.0, i) * 3600)
+    #                 print('Estimated hours remaining to write the training set: {}'.format(
+    #                     hours_remaining))
+                
+    #             qid, pid, query, doc, label, len_gt_query = line.rstrip().split('\t')
+    #             q, p = self.marker.mark(query, doc)
+
+    #             # write tfrecord
+    #             self.passage_handle.write_eval_example(tf_writer, q, [p], [int(label)], qid, [pid], int(len_gt_query))
+    #             tsv_writer.write(f"{qid}\t{q}\t{pid}\t{p}\t{label}\t{len_gt_query}\n")
+    #     tf_writer.close()
+    #     tsv_writer.close()
+
     def prepare_inference_dataset( self,
                              data_path, 
                              output_dir,
-                             set_name, ):
+                             set_name,
+                              ):
         tf_writer = tf.io.TFRecordWriter(f"{output_dir}/dataset_{set_name}.tf")
         tsv_writer = open(f"{output_dir}/pairs_{set_name}.tsv", 'w')
+        ids_writer = open(f"{output_dir}/query_pass_ids_{set_name}.tsv", 'w')
+        i_ids = 0
 
         start_time = time.time()
 
         print('Counting number of examples...')
         num_lines = sum(1 for line in open(data_path, 'r'))
         print('{} examples found.'.format(num_lines))
-
+        
         with open(data_path, 'r') as f:
             for i, line in enumerate(f):
                 if i % 1000 == 0:
@@ -259,15 +295,17 @@ class MsMarcoPassageProcessor(DataProcessor):
                     hours_remaining = (num_lines - i) * time_passed / (max(1.0, i) * 3600)
                     print('Estimated hours remaining to write the training set: {}'.format(
                         hours_remaining))
-                
+                              
                 qid, pid, query, doc, label, len_gt_query = line.rstrip().split('\t')
                 q, p = self.marker.mark(query, doc)
 
                 # write tfrecord
-                self.passage_handle.write_eval_example(tf_writer, q, [p], [int(label)], qid, [pid], int(len_gt_query))
+                i_ids = self.passage_handle.write_eval_example(tf_writer, ids_writer, i_ids, q, [p], [int(label)], qid, [pid], int(len_gt_query))
                 tsv_writer.write(f"{qid}\t{q}\t{pid}\t{p}\t{label}\t{len_gt_query}\n")
         tf_writer.close()
         tsv_writer.close()
+        ids_writer.close()
+
 
 
 

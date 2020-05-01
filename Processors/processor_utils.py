@@ -119,7 +119,36 @@ class PassageHandle(TFRecordHandle):
                     drop_remainder=True)
         return dataset, count.numpy() #count
     
-    def get_eval_dataset (self, data_path, batch_size, num_skip=0):
+    # def get_eval_dataset (self, data_path, batch_size, num_skip=0):
+    #     dataset = tf.data.TFRecordDataset([data_path])
+    #     dataset = dataset.map( lambda record : self._extract_fn_eval(record)).prefetch(batch_size*1000)
+    #     if num_skip > 0:
+    #         dataset = dataset.skip(num_skip)
+    #     count = dataset.reduce(0, lambda x, _: x + 1)
+    #     dataset = dataset.padded_batch(
+    #                 batch_size=batch_size,
+    #                 padded_shapes=({
+    #                     "q_id" : [],
+    #                     "d_id" : [],
+    #                     "input_ids": [self.max_seq_length],
+    #                     "attention_mask": [self.max_seq_length],
+    #                     "token_type_ids": [self.max_seq_length],
+    #                     "len_gt_titles": []
+    #                     }, []
+    #                 ),
+    #                 padding_values=({
+    #                     "q_id": 0,
+    #                     "d_id": 0,
+    #                     "input_ids": 0,
+    #                     "attention_mask": 0,
+    #                     "token_type_ids": 0,
+    #                     "len_gt_titles": 0
+    #                     }, 0
+    #                 ),
+    #                 drop_remainder=False)
+    #     return dataset, count.numpy()
+
+    def get_eval_dataset(self, data_path, batch_size, num_skip=0):
         dataset = tf.data.TFRecordDataset([data_path])
         dataset = dataset.map( lambda record : self._extract_fn_eval(record)).prefetch(batch_size*1000)
         if num_skip > 0:
@@ -128,8 +157,7 @@ class PassageHandle(TFRecordHandle):
         dataset = dataset.padded_batch(
                     batch_size=batch_size,
                     padded_shapes=({
-                        "q_id" : [],
-                        "d_id" : [],
+                        "id" : [],
                         "input_ids": [self.max_seq_length],
                         "attention_mask": [self.max_seq_length],
                         "token_type_ids": [self.max_seq_length],
@@ -137,8 +165,7 @@ class PassageHandle(TFRecordHandle):
                         }, []
                     ),
                     padding_values=({
-                        "q_id": 0,
-                        "d_id": 0,
+                        "id": 0,
                         "input_ids": 0,
                         "attention_mask": 0,
                         "token_type_ids": 0,
@@ -173,10 +200,48 @@ class PassageHandle(TFRecordHandle):
         return (features, label_ids)
     
 
+    # def _extract_fn_eval(self, data_record):
+    #     features = {
+    #       "q_id" : tf.io.FixedLenFeature([], tf.string),
+    #       "d_id" : tf.io.FixedLenFeature([], tf.string),
+    #       "query_ids": tf.io.FixedLenSequenceFeature(
+    #           [], tf.int64, allow_missing=True),
+    #       "doc_ids": tf.io.FixedLenSequenceFeature(
+    #           [], tf.int64, allow_missing=True),
+    #       "label": tf.io.FixedLenFeature([], tf.int64),
+    #       "len_gt_titles": tf.io.FixedLenFeature([], tf.int64),
+    #     }
+    #     sample = tf.io.parse_single_example(data_record, features)
+    #     # create a function for this that is shared between eval and train
+    #     q_id = tf.strings.to_number(
+    #             sample['q_id'], out_type=tf.dtypes.int32
+    #     )
+    #     d_id = tf.strings.to_number(
+    #             sample['d_id'], out_type=tf.dtypes.int32
+    #     )
+
+    #     query_ids = tf.cast(sample["query_ids"], tf.int32) # max length with special tokens
+    #     doc_ids = tf.cast(sample["doc_ids"], tf.int32) #max length with special tokens
+    #     label_ids = tf.cast(sample["label"], tf.int32)
+    #     len_gt_titles = tf.cast(sample["len_gt_titles"], tf.int32)
+        
+    #     input_ids, input_mask, segment_ids = self._encode(query_ids, doc_ids)
+
+    #     features = {
+    #         "q_id" : q_id,
+    #         "d_id" : d_id,
+    #         "input_ids": input_ids,
+    #         "attention_mask": input_mask,
+    #         "token_type_ids": segment_ids,
+    #         "len_gt_titles": len_gt_titles,
+    #     }
+        
+    #     return (features, label_ids)
+
+
     def _extract_fn_eval(self, data_record):
         features = {
-          "q_id" : tf.io.FixedLenFeature([], tf.string),
-          "d_id" : tf.io.FixedLenFeature([], tf.string),
+          "id" : tf.io.FixedLenFeature([], tf.int64),
           "query_ids": tf.io.FixedLenSequenceFeature(
               [], tf.int64, allow_missing=True),
           "doc_ids": tf.io.FixedLenSequenceFeature(
@@ -185,24 +250,17 @@ class PassageHandle(TFRecordHandle):
           "len_gt_titles": tf.io.FixedLenFeature([], tf.int64),
         }
         sample = tf.io.parse_single_example(data_record, features)
-        # create a function for this that is shared between eval and train
-        q_id = tf.strings.to_number(
-                sample['q_id'], out_type=tf.dtypes.int32
-        )
-        d_id = tf.strings.to_number(
-                sample['d_id'], out_type=tf.dtypes.int32
-        )
 
-        query_ids = tf.cast(sample["query_ids"], tf.int32) # max length with special tokens
-        doc_ids = tf.cast(sample["doc_ids"], tf.int32) #max length with special tokens
+        id_pair = tf.cast(sample["id"], tf.int32)
+        query_ids = tf.cast(sample["query_ids"], tf.int32)  
+        doc_ids = tf.cast(sample["doc_ids"], tf.int32) 
         label_ids = tf.cast(sample["label"], tf.int32)
         len_gt_titles = tf.cast(sample["len_gt_titles"], tf.int32)
         
         input_ids, input_mask, segment_ids = self._encode(query_ids, doc_ids)
 
         features = {
-            "q_id" : q_id,
-            "d_id" : d_id,
+            "id" : id_pair,
             "input_ids": input_ids,
             "attention_mask": input_mask,
             "token_type_ids": segment_ids,
@@ -210,6 +268,7 @@ class PassageHandle(TFRecordHandle):
         }
         
         return (features, label_ids)
+
     
     def _encode(self, query_ids, doc_ids):
         query_ids_without_sep = query_ids[:-1]
@@ -262,20 +321,70 @@ class PassageHandle(TFRecordHandle):
             example = tf.train.Example(features=features)
             tf_writer.write(example.SerializeToString())
     
-    def write_eval_example(self, tf_writer,
+    # def write_eval_example(self, tf_writer,
+    #                                         query,
+    #                                         docs,
+    #                                         labels,
+    #                                         query_id, 
+    #                                         doc_ids,
+    #                                         len_gt):
+    #     q_id_tf = tf.train.Feature(
+    #                 bytes_list=tf.train.BytesList(value=[query_id.encode()]))
+
+    #     q_inputs = self.tokenizer.encode_plus(
+    #                 query,
+    #                 add_special_tokens=True,
+    #                 max_length= self.max_seq_length,
+    #             )
+    #     query_ids = q_inputs["input_ids"] 
+    #     query_ids_tf = tf.train.Feature(
+    #             int64_list=tf.train.Int64List(value=query_ids))
+        
+    #     len_gt_titles_tf = tf.train.Feature(
+    #                     int64_list=tf.train.Int64List(value=[len_gt]))
+                        
+    #     for i, (doc_title, doc_text, label) in enumerate(zip(doc_ids, docs, labels)):
+
+    #         d_id_tf = tf.train.Feature(
+    #                     bytes_list=tf.train.BytesList(value=[doc_title.encode()]))
+            
+    #         inputs = self.tokenizer.encode_plus(
+    #                 doc_text,
+    #                 add_special_tokens=True,
+    #                 max_length=self.max_seq_length,
+    #             )
+    #         doc_ids = inputs["input_ids"]  
+
+    #         doc_ids_tf = tf.train.Feature(
+    #             int64_list=tf.train.Int64List(value=doc_ids))
+
+    #         labels_tf = tf.train.Feature(
+    #             int64_list=tf.train.Int64List(value=[label]))
+
+    #         features = tf.train.Features(feature={
+    #             'q_id' : q_id_tf,
+    #             'd_id' : d_id_tf,
+    #             'query_ids' : query_ids_tf,
+    #             'doc_ids': doc_ids_tf,
+    #             'label': labels_tf,
+    #             'len_gt_titles': len_gt_titles_tf,
+    #         })
+
+    #         example = tf.train.Example(features=features)
+    #         tf_writer.write(example.SerializeToString())
+
+    def write_eval_example(self, tf_writer, ids_writer, i_ids,
                                             query,
                                             docs,
                                             labels,
                                             query_id, 
                                             doc_ids,
                                             len_gt):
-        q_id_tf = tf.train.Feature(
-                    bytes_list=tf.train.BytesList(value=[query_id.encode()]))
 
         q_inputs = self.tokenizer.encode_plus(
                     query,
                     add_special_tokens=True,
-                    max_length= self.max_seq_length,
+                    max_length= self.max_query_length,
                 )
         query_ids = q_inputs["input_ids"] 
         query_ids_tf = tf.train.Feature(
@@ -284,10 +393,7 @@ class PassageHandle(TFRecordHandle):
         len_gt_titles_tf = tf.train.Feature(
                         int64_list=tf.train.Int64List(value=[len_gt]))
                         
-        for i, (doc_title, doc_text, label) in enumerate(zip(doc_ids, docs, labels)):
-
-            d_id_tf = tf.train.Feature(
-                        bytes_list=tf.train.BytesList(value=[doc_title.encode()]))
+        for i, (doc_id, doc_text, label) in enumerate(zip(doc_ids, docs, labels)):
             
             inputs = self.tokenizer.encode_plus(
                     doc_text,
@@ -301,19 +407,23 @@ class PassageHandle(TFRecordHandle):
 
             labels_tf = tf.train.Feature(
                 int64_list=tf.train.Int64List(value=[label]))
-
+            
+            id_tf = tf.train.Feature(
+                        int64_list=tf.train.Int64List(value=[i_ids]))
+            
             features = tf.train.Features(feature={
-                'q_id' : q_id_tf,
-                'd_id' : d_id_tf,
-                'query_ids' : query_ids_tf,
-                'doc_ids': doc_ids_tf,
-                'label': labels_tf,
-                'len_gt_titles': len_gt_titles_tf,
-            })
+                        'id' : id_tf,
+                        'query_ids' : query_ids_tf,
+                        'doc_ids': doc_ids_tf,
+                        'label': labels_tf,
+                        'len_gt_titles': len_gt_titles_tf,
+                    })
 
             example = tf.train.Example(features=features)
             tf_writer.write(example.SerializeToString())
-
+            ids_writer.write("\t".join([str(i_ids),query_id, doc_id])+"\n")
+            i_ids += 1
+        return i_ids
 
 class DocumentHandle(TFRecordHandle):
 
