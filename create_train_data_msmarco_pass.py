@@ -45,7 +45,6 @@ def main():
             
     pass_processor.prepare_train_dataset(args.data_path, args.output_dir,args.set_name)
     
-    convert_train_dataset(args.triples_train_path, args.output_folder, tokenizer) 
 
 if __name__ == "__main__":
     main()
