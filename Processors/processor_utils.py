@@ -69,6 +69,7 @@ class TFRecordHandle(object):
     
     def get_eval_dataset(self, data_path, batch_size, num_skip=0):
         raise NotImplementedError()
+        #same need to create a subclass for test only and an other for train test 
     
     def write_train_example(self, tf_writer,
                                          query,
@@ -421,7 +422,7 @@ class PassageHandle(TFRecordHandle):
 
             example = tf.train.Example(features=features)
             tf_writer.write(example.SerializeToString())
-            ids_writer.write("\t".join([str(i_ids),query_id, doc_id])+"\n")
+            ids_writer.write("\t".join([str(i_ids), query_id, doc_id, '0'])+"\n")
             i_ids += 1
         return i_ids
 
@@ -554,7 +555,19 @@ class DocumentHandle(TFRecordHandle):
                 ids_writer.write("\t".join([str(i_ids), query_id, doc_id])+"\n")
                 i_ids += 1
         return i_ids
+    
+    def _encode(self, query_ids, title_ids, doc_ids):
+        d_len = self.max_seq_length - self.max_query_length - self.max_title_length
+        document_ids = tf.concat(( title_ids, doc_ids[:d_len], query_ids[-1:]), axis= 0) # query_ids[-1:] == [SEP]
+        input_ids = tf.concat((query_ids, document_ids), axis= 0)
 
+        input_mask = tf.ones_like(input_ids)
+
+        query_segment_id = tf.zeros_like(query_ids)
+        doc_segment_id = tf.ones_like(document_ids)
+        segment_ids = tf.concat((query_segment_id, doc_segment_id), 0)
+
+        return input_ids, input_mask, segment_ids
     
     def _extract_fn_eval(self, data_record):
         features = {
@@ -577,15 +590,7 @@ class DocumentHandle(TFRecordHandle):
         label_ids = tf.cast(sample["label"], tf.int32)
         len_gt_titles = tf.cast(sample["len_gt_titles"], tf.int32)
         
-        d_len = self.max_seq_length - self.max_query_length - self.max_title_length
-        document_ids = tf.concat(( title_ids, doc_ids[:d_len], query_ids[-1:]), axis= 0) # query_ids[-1:] == [SEP]
-        input_ids = tf.concat((query_ids, document_ids), axis= 0)
-
-        input_mask = tf.ones_like(input_ids)
-
-        query_segment_id = tf.zeros_like(query_ids)
-        doc_segment_id = tf.ones_like(document_ids)
-        segment_ids = tf.concat((query_segment_id, doc_segment_id), 0)
+        input_ids, input_mask, segment_ids = self._encode(query_ids, title_ids, doc_ids)
 
         features = {
             "id" : id_pair,
@@ -646,6 +651,7 @@ class DocumentSplitterHandle(DocumentHandle):
             i = 0
             while len(doc_ids)>0:
                 passage_ids = doc_ids[:self.chunk_size]
+                passage_text = self.tokenizer.convert_tokens_to_string(self.tokenizer.convert_ids_to_tokens(passage_ids))
                 
                 doc_ids_tf = tf.train.Feature(
                     int64_list=tf.train.Int64List(value=passage_ids))
@@ -664,7 +670,7 @@ class DocumentSplitterHandle(DocumentHandle):
 
                 example = tf.train.Example(features=features)
                 tf_writer.write(example.SerializeToString())
-                ids_writer.write("\t".join([str(i_ids),query_id, doc_id, str(i)])+"\n")
+                ids_writer.write("\t".join([str(i_ids), query_id, doc_id, str(i), passage_text])+"\n")
                 i_ids += 1
                 i += 1
 
@@ -674,6 +680,114 @@ class DocumentSplitterHandle(DocumentHandle):
                 # end of the doc_ids no more data
             #next document
         return i_ids
-  
+
+    def write_train_example(self, tf_writer,
+                                query,
+                                docs,
+                                labels):
+
+        q_inputs = self.tokenizer.encode_plus(
+                    query,
+                    add_special_tokens=True,
+                    max_length= self.max_query_length,
+                )
+        query_ids = q_inputs["input_ids"] 
+        query_ids_tf = tf.train.Feature(
+                int64_list=tf.train.Int64List(value=query_ids))
+                                
+        for i, (doc_tuple, label) in enumerate(zip(docs, labels)):
+            doc_title, doc_text = doc_tuple
+
+            t_inputs = self.tokenizer.encode_plus(
+                    doc_title,
+                    add_special_tokens=False,
+                    max_length=self.max_title_length-1 , # for the [SEP] token
+                )
+            title_ids = t_inputs["input_ids"]  
+            title_ids_tf = tf.train.Feature(
+                int64_list=tf.train.Int64List(value=title_ids))
+
+            labels_tf = tf.train.Feature(
+                int64_list=tf.train.Int64List(value=[label]))
+            
+            d_inputs = self.tokenizer.encode_plus(
+                    doc_text,
+                    add_special_tokens=False,
+                )
+            doc_ids = d_inputs["input_ids"] 
+
+            while len(doc_ids)>0:
+                passage_ids = doc_ids[:self.chunk_size]
+                
+                doc_ids_tf = tf.train.Feature(
+                    int64_list=tf.train.Int64List(value=passage_ids))
+                
+                features = tf.train.Features(feature={
+                    'query_ids' : query_ids_tf,
+                    'title_ids' : title_ids_tf,
+                    'doc_ids': doc_ids_tf,
+                    'label': labels_tf,
+                })
+
+                example = tf.train.Example(features=features)
+                tf_writer.write(example.SerializeToString())
+                
+
+                doc_ids = doc_ids[self.stride:]
+                if len(doc_ids)<self.stride:
+                    break
+                # end of the doc_ids no more data
+            #next document
+
+
+    def _extract_fn_train(self, data_record):
+        features = {
+          "query_ids": tf.io.FixedLenSequenceFeature(
+              [], tf.int64, allow_missing=True),
+          "title_ids": tf.io.FixedLenSequenceFeature(
+              [], tf.int64, allow_missing=True),
+          "doc_ids": tf.io.FixedLenSequenceFeature(
+              [], tf.int64, allow_missing=True),
+          "label": tf.io.FixedLenFeature([], tf.int64),
+        }
+        sample = tf.io.parse_single_example(data_record, features)
+
+        query_ids = tf.cast(sample["query_ids"], tf.int32) 
+        title_ids = tf.cast(sample["title_ids"], tf.int32) 
+        doc_ids = tf.cast(sample["doc_ids"], tf.int32) 
+        label_ids = tf.cast(sample["label"], tf.int32)
+        
+        input_ids, input_mask, segment_ids = self._encode(query_ids, title_ids, doc_ids)
+
+        features = {
+            "input_ids": input_ids,
+            "attention_mask": input_mask,
+            "token_type_ids": segment_ids,
+        }
+        
+        return (features, label_ids)
+
+    def get_train_dataset (self, data_path, batch_size):
+        dataset = tf.data.TFRecordDataset([data_path])
+        dataset = dataset.map( lambda record : self._extract_fn_train(record)).prefetch(batch_size*1000)
+        count = dataset.reduce(0, lambda x, _: x + 1)
+        dataset = dataset.repeat()
+        dataset = dataset.shuffle(buffer_size=1000, seed=42)
+        dataset = dataset.padded_batch(
+                    batch_size=batch_size,
+                    padded_shapes=({
+                        "input_ids": [self.max_seq_length],
+                        "attention_mask": [self.max_seq_length],
+                        "token_type_ids": [self.max_seq_length]},
+                        []
+                    ),
+                    padding_values=({
+                        "input_ids": 0,
+                        "attention_mask": 0,
+                        "token_type_ids": 0},
+                        0
+                    ),
+                    drop_remainder=True)
+        return dataset, count.numpy() #count
 
 

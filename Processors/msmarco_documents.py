@@ -191,7 +191,7 @@ class MsMarcoDocumentProcessor(DataProcessor):
                              set_name,
                               ):
         tf_writer = tf.io.TFRecordWriter(f"{output_dir}/dataset_{set_name}.tf")
-        tsv_writer = open(f"{output_dir}/pairs_{set_name}.tsv", 'w')
+        #tsv_writer = open(f"{output_dir}/pairs_{set_name}.tsv", 'w')
         ids_writer = open(f"{output_dir}/query_pass_ids_{set_name}.tsv", 'w')
         i_ids = 0
 
@@ -217,8 +217,8 @@ class MsMarcoDocumentProcessor(DataProcessor):
 
                 # write tfrecord
                 i_ids = self.handle.write_eval_example(tf_writer, ids_writer, i_ids, m_query, [(m_title,m_doc)], [int(label)], qid, [did], int(len_gt_query)) ## stride pass_len
-                tsv_writer.write(f"{qid}\t{m_query}\t{did}\t{m_title}\t{m_doc}\t{label}\t{len_gt_query}\n")
+                #tsv_writer.write(f"{qid}\t{m_query}\t{did}\t{m_title}\t{m_doc}\t{label}\t{len_gt_query}\n")
         tf_writer.close()
-        tsv_writer.close()
+        #tsv_writer.close()
         ids_writer.close()
 

@@ -164,6 +164,98 @@ def _load_collection(path):
     return collection
 
 
+def convert_train_dataset(output_folder,  
+                        queries_path, 
+                        collection_path, 
+                        qrels_path,
+                        set_name,
+                        sentence_level=True,
+                        use_question=True):
+    print('Begin...')
+    if not os.path.exists(output_folder):
+            os.mkdir(output_folder)
+
+    queries = _load_queries(path=queries_path, use_question=use_question)
+    qrels = _load_train_qrels(path=qrels_path)
+    data = _merge_train(qrels, queries)
+
+    print('Loading Collection...')
+    collection = _load_collection(collection_path)
+
+    print('Converting to TFRecord...')
+    _convert_train_dataset(data, collection, set_name, output_folder, sentence_level)
+    print('Done!')
+
+def _convert_train_dataset(data, 
+                        collection, 
+                        set_name,  
+                        output_folder,
+                        sentence_level = True):
+
+    output_path = output_folder + f'/run_{set_name}_doc.tsv'
+    start_time = time.time()
+    if sentence_level:
+        sent_writer = open(output_folder + f'/run_{set_name}_sentence.tsv', 'w')
+        nlp = sp.load("en_core_web_sm", disable=['parser', 'tagger', 'ner'])
+        nlp.max_length = 2100000
+        nlp.add_pipe(nlp.create_pipe('sentencizer'))
+
+    with open(output_path, 'w') as doc_writer:
+        for idx, query_id in enumerate(data):
+                query, docs = data[query_id]
+
+                clean_query = clean_text(query)
+
+                for doc_id,rel_score in docs:
+                    if doc_id in collection:
+                        title, doc = collection[doc_id]
+                        _doc = strip_html_xml_tags(doc)
+                        clean_doc = clean_text(_doc)
+                        clean_title = clean_text(title)
+                        if sentence_level:
+                            d= nlp(clean_doc)
+                            for i, sentence in enumerate(d.sents):
+                                passage = sentence.string.strip()
+                                doc_id = f'{doc_id}_{i}'
+                                sent_writer.write("\t".join((clean_query, clean_title, passage, str(rel_score))) + "\n")
+                        
+                        doc_writer.write("\t".join((clean_query, clean_title, clean_doc, str(rel_score))) + "\n")
+                        
+                    
+
+                if idx % 10 == 0:
+                    print('wrote {} of {} queries'.format(idx, len(data)))
+                    time_passed = time.time() - start_time
+                    est_hours = (len(data) - idx) * time_passed / (max(1.0, idx) * 3600)
+                    print('estimated total hours to save: {}'.format(est_hours))
+    if sentence_level:
+        sent_writer.close()
+
+def _load_train_qrels(path):
+    relevance_threshold = 1
+    qrels = collections.OrderedDict()
+    with open(path) as f:
+        for i, line in enumerate(f):
+                query_id, doc_title, relevance = line.split('\t')
+                if query_id not in qrels:
+                    qrels[query_id] = []
+                rel = (1 if int(relevance) >= relevance_threshold else 0)
+                qrels[query_id].append((doc_title, int(rel)))
+                if i % 1000000 == 0:
+                    print('Loading run {}'.format(i))
+    return qrels
+
+
+def _merge_train(qrels, queries):
+    """Merge qrels and runs into a single dict of key: query, 
+        value: tuple(relevant_doc_ids, candidate_doc_ids)"""
+    data = collections.OrderedDict()
+    for query_id, doc_ids in qrels.items():
+            query = queries[query_id]
+            docs = qrels[query_id]
+            data[query_id] = (query, docs)
+    return data
+
 class Cord19Processor(MsMarcoDocumentProcessor):
 
     def __init__(self, 
@@ -171,4 +263,40 @@ class Cord19Processor(MsMarcoDocumentProcessor):
                 marker,
                 ):
         super(Cord19Processor,self).__init__(document_handle,marker)
+    
+    def get_train_dataset (self, data_path, batch_size):
+        return self.handle.get_train_dataset(data_path, batch_size)
+
+    def prepare_train_dataset( self,
+                             data_path, 
+                             output_dir,
+                             set_name,
+                             ):
+        tf_writer = tf.io.TFRecordWriter(f"{output_dir}/dataset_{set_name}_train.tf")
+        tsv_writer = open(f"{output_dir}/pairs_{set_name}_train.tsv", 'w')
+
+        start_time = time.time()
+
+        print('Counting number of examples...')
+        num_lines = sum(1 for line in open(data_path, 'r'))
+        print('{} examples found.'.format(num_lines))
+
+        with open(data_path, 'r') as f:
+            for i, line in enumerate(f):
+                if i % 1000 == 0:
+                    time_passed = int(time.time() - start_time)
+                    print('Processed training set, line {} of {} in {} sec'.format(
+                        i, num_lines, time_passed))
+                    hours_remaining = (num_lines - i) * time_passed / (max(1.0, i) * 3600)
+                    print('Estimated hours remaining to write the training set: {}'.format(
+                        hours_remaining))
+
+                query, title, doc, label = line.rstrip().split('\t')
+                m_query, m_title, m_doc = self.marker.mark(query, title, doc)
+                # write tfrecord
+                self.handle.write_train_example(tf_writer, m_query, [(m_title,m_doc)], [int(label)]) ## stride pass_len
+                tsv_writer.write(f"{m_query}\t{m_title}\t{m_doc}\t{label}\n")
+
+        tf_writer.close()
+        tsv_writer.close()
     
